@@ -1,0 +1,47 @@
+# LAMMPS input script for Be lattice equilibration at 0 K and 0 pressure
+
+# Initialize
+units metal
+boundary p p p
+atom_style atomic
+
+# Read data file and potential
+read_data Be.lmp
+pair_style tersoff/zbl
+
+# Potential settings
+pair_coeff * * BeHII.tersoff.zbl Be
+neighbor 2.0 bin 
+neigh_modify delay 10 check yes
+
+variable          nthermo equal  1000
+variable          ndump   equal  100
+thermo            ${nthermo}
+variable          nsteps  equal  10000
+
+# Settings
+compute           eng all pe/atom
+compute           eatoms all reduce sum c_eng
+reset_timestep    0 
+thermo_style      custom step atoms etotal pe ke temp press lx ly lz pxx pyy pzz pxy pxz pyz c_eatoms
+dump              1 all custom ${ndump} Beryllium.eq.lammpstrj id type xu yu zu vx vy vz
+
+fix 1 all box/relax iso 0.0
+minimize 1e-20 1e-20 5000 10000
+
+# Equilibration settings
+timestep          0.01
+run               ${nsteps}
+
+
+variable natoms equal "count(all)" 
+variable teng equal "c_eatoms"
+variable length equal "lx/7"
+variable ecoh equal "v_teng/v_natoms"
+
+print "Total energy (eV) = ${teng};"
+print "Number of atoms = ${natoms};"
+print "Lattice constant (Angstoms) = ${length};"
+print "Cohesive energy (eV) = ${ecoh};"
+
+print "All done!"
