@@ -1,0 +1,22 @@
+#!/bin/bash
+#SBATCH --time=02:00:00
+#SBATCH --mem=3G
+#SBATCH --ntasks=15
+#SBATCH --array=4
+#SBATCH --output=out.log
+
+# Load modules
+module load cmake/3.27.7 gcc/12.3.0 openmpi/4.1.6 fftw/3.3.10
+
+# Path to your TSV file
+TSV_FILE="$PWD/Input_10eV.tsv"
+
+# Read position and velocity from TSV based on array task ID
+line=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$TSV_FILE")
+IFS=$'\t' read -r rid theta phi x y z v vx vy vz shiftx shifty <<< "$line"
+
+# Run simulation
+mkdir $rid
+cd $rid
+srun lmp -in ../in.lmp -log Irrad.$rid.log -var i $rid -var rid $rid -var T 300 -var x $x -var y $y -var z $z -var vx $vx -var vy $vy -var vz $vz -var shiftx $shiftx -var shifty $shifty
+cd ..
