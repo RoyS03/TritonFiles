@@ -1,0 +1,77 @@
+# LAMMPS input file for relaxing the initial HCP structure
+
+# set units
+units metal
+boundary p p p
+
+# import initial cell
+read_data Initial_BeD.data
+
+# load potential file
+pair_style tersoff/zbl
+pair_coeff * * ../../BeH.tersoff.zbl Be D
+
+# Initial Minimization
+group             Be type 1
+group             D  type 2
+fix               freeze Be setforce 0.0 0.0 0.0
+fix               vol all box/relax iso 0.0
+min_style         cg
+minimize          1e-25 1e-25 10000 15000
+unfix             vol
+minimize          1e-25 1e-25 10000 15000
+unfix freeze
+
+# set gaussian distributed initial velocity
+velocity all create ${T} ${seed} rot yes mom yes dist gaussian
+
+# set timestep for NPT phase
+timestep ${dt}
+
+# enable persistent dump with potential energy
+compute Ep all pe/atom
+dump 1 all custom 1000 BeD.minimized.lammpstrj id element type x y z vx vy vz c_Ep
+dump_modify 1 element Be D
+
+# redirect thermo output to separate file, CSV format
+variable TIME equal time
+variable STEP equal step
+variable DT equal dt
+variable TEMP equal temp
+variable VOL equal vol
+variable LX equal lx
+variable LY equal ly
+variable LZ equal lz
+variable PRESS equal press
+variable PXX equal pxx
+variable PYY equal pyy
+variable PZZ equal pzz
+variable PE equal pe
+variable KE equal ke
+variable ETOTAL equal etotal
+
+fix FIX_PRINT_THERMO all print 100 "${TIME},${STEP},${DT},${TEMP},${VOL},${LX},${LY},${LZ},${PRESS},${PXX},${PYY},${PZZ},${PE},${KE},${ETOTAL}" screen no file BeD.minimized.csv title "time,timestep,dt,temp,vol,lx,ly,lz,press,pxx,pyy,pzz,pe,ke,etotal"
+
+thermo_style custom time step temp press pe ke etotal
+thermo 1000
+
+# Berendsen thermostat everywhere
+fix FIX_TEMP all temp/berendsen ${T} ${T} $(dt*100.0)
+
+# Berendsen barostat everywhere
+fix FIX_PRES all press/berendsen iso ${P} ${P} $(dt*1000.0) modulus 1300000
+
+# NVE integrator
+fix NVE all nve
+fix moving_lim D nve/limit 0.00001
+
+# run NPT simulation
+variable nsteps equal ceil(${Time}/${dt})
+run ${nsteps}
+
+# write files
+unfix FIX_PRES
+unfix FIX_TEMP
+unfix FIX_PRINT_THERMO
+write_restart BeD.minimized.restart
+write_data BeD.minimized.data

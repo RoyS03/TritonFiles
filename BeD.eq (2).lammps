@@ -1,0 +1,122 @@
+# LAMMPS input file for relaxing the initial HCP structure
+
+# set units
+units metal
+
+# import initial cell
+read_restart BeD.minimized.restart
+
+
+# shift box
+change_box all x delta $(-lx/2) $(-lx/2) y delta $(-ly/2) $(-ly/2) z delta $(-lz) $(-lz)
+
+# load potential file
+pair_style tersoff/zbl
+pair_coeff * * ../../BeH.tersoff.zbl Be D
+
+# set gaussian distributed initial velocity
+velocity all create ${T} ${seed} rot yes mom yes dist gaussian
+
+# set timestep for NPT phase
+timestep ${dt}
+
+# enable persistent dump with potential energy
+compute Ep all pe/atom
+dump 1 all custom 1000 BeD_base.eq_${T}.lammpstrj id element type x y z vx vy vz c_Ep
+dump_modify 1 element Be D
+
+# redirect thermo output to separate file, CSV format
+variable TIME equal time
+variable STEP equal step
+variable DT equal dt
+variable TEMP equal temp
+variable VOL equal vol
+variable LX equal lx
+variable LY equal ly
+variable LZ equal lz
+variable PRESS equal press
+variable PXX equal pxx
+variable PYY equal pyy
+variable PZZ equal pzz
+variable PE equal pe
+variable KE equal ke
+variable ETOTAL equal etotal
+
+fix FIX_THERMO all print 100 "${TIME},${STEP},${DT},${TEMP},${VOL},${LX},${LY},${LZ},${PRESS},${PXX},${PYY},${PZZ},${PE},${KE},${ETOTAL}" screen no file BeD.eq_${T}.csv title "time,timestep,dt,temp,vol,lx,ly,lz,press,pxx,pyy,pzz,pe,ke,etotal"
+
+thermo_style custom time step temp press pe ke etotal
+thermo 1000
+
+# Berendsen thermostat everywhere
+fix FIX_TEMP all temp/berendsen ${T} ${T} $(dt*100.0)
+
+# Berendsen barostat everywhere
+fix FIX_PRES all press/berendsen iso ${P} ${P} $(dt*1000.0) modulus 1300000
+
+# NVE integrator
+fix NVE all nve
+fix moving_lim D nve/limit 0.0001
+
+# run NPT simulation
+variable nsteps equal ceil(${Time}/${dt})
+run ${nsteps}
+
+# remove barostat
+unfix FIX_PRES
+unfix NVE
+
+# open surface in z direction
+change_box all z delta 0.0 50 boundary p p f units box
+
+# whole cell
+region REG_ALL block INF INF INF INF INF INF units box
+
+# only solid portion (some Angstrom above 0, to capture surface atoms)
+region REG_SOLID block INF INF INF INF INF 0 units box
+
+# vacuum is logical NOT of intersection of "all" and "solid" (see "side out")
+region REG_VAC intersect 2 REG_ALL REG_SOLID side out
+
+# locked region at the bottom
+region REG_LOCK block INF INF INF INF INF $(zlo + 3) units box
+
+# everything but the locked region is integrated by NVE
+region REG_NVE intersect 2 REG_ALL REG_LOCK side out
+
+# bulk is defined from boundary thickness
+region REG_BULK block $(xlo + 5) $(xhi - 5) $(ylo + 5) $(yhi - 5) $(zlo + 8) 0 units box
+
+# boundary is then defined as everything but vacuum, lock and bulk
+region REG_BOUND union 3 REG_VAC REG_LOCK REG_BULK side out
+
+# dynamic groups, updated every timestep
+group GRP_VAC dynamic all region REG_VAC
+group GRP_BULK dynamic all region REG_BULK
+group GRP_BOUND dynamic all region REG_BOUND
+
+# static groups, fixed once
+group GRPST_LOCK region REG_LOCK
+group GRPST_NVE region REG_NVE
+
+variable IN_VAC atom gmask(GRP_VAC)
+variable IN_BULK atom gmask(GRP_BULK)
+variable IN_BOUND  atom gmask(GRP_BOUND)
+variable IN_LOCK atom gmask(GRPST_LOCK)
+variable IN_NVE atom gmask(GRPST_NVE)
+
+dump 2 all custom 1000 BeD_groups.eq_${T}.lammpstrj  id element type x y z v_IN_VAC v_IN_BULK v_IN_BOUND v_IN_LOCK v_IN_NVE
+dump_modify 2 element Be D
+
+# NVE integrator works on moving (= everything but fixed) region
+fix FIX_NVE GRPST_NVE nve
+
+# run NVT simulation
+run ${nsteps}
+
+# write files
+unfix FIX_NVE
+unfix moving_lim
+unfix FIX_TEMP
+unfix FIX_THERMO
+write_restart BeD.eq_${T}.restart
+write_data BeD.eq_${T}.data
